@@ -1,6 +1,6 @@
 # CodeSync — Real-Time Collaborative Code Editor
 
-> Built by **Ajit Mukund Joshi** · [Live Demo](https://codesync.onrender.com) · [LinkedIn](https://linkedin.com/in/ajitjoshi) · [GitHub](https://github.com/ajitjoshi810)
+> Built by **Ajit Mukund Joshi** · [Live Demo](https://ajitjoshi-codesync.onrender.com) · [LinkedIn](https://linkedin.com/in/ajitjoshi) · [GitHub](https://github.com/ajitjoshi810)
 
 A production-grade collaborative code editor supporting real-time multi-user editing using **Conflict-free Replicated Data Types (CRDT)** via Yjs, WebSocket synchronization, and MongoDB session persistence.
 
