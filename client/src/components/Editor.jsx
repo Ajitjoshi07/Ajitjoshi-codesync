@@ -1,51 +1,104 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import { useCollabEditor } from '../hooks/useCollabEditor';
-import Sidebar from './Sidebar';
+import ProjectManager, { DEFAULT_PROJECTS } from './ProjectManager';
 import TopBar from './TopBar';
 import ActivityFeed from './ActivityFeed';
 import StatusBar from './StatusBar';
-
-const DEFAULT_FILES = [
-  { name: 'main.js', language: 'javascript', content: '// CodeSync — Real-Time Collaborative Editor\n// Start coding! Changes sync instantly across all users.\n\nfunction greet(name) {\n  return `Hello, ${name}! Welcome to CodeSync.`;\n}\n\nconsole.log(greet("World"));\n' },
-  { name: 'index.html', language: 'html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>My App</title>\n  <link rel="stylesheet" href="style.css">\n</head>\n<body>\n  <h1>Hello from CodeSync!</h1>\n  <script src="main.js"></script>\n</body>\n</html>\n' },
-  { name: 'style.css', language: 'css', content: '* {\n  box-sizing: border-box;\n  margin: 0;\n  padding: 0;\n}\n\nbody {\n  font-family: system-ui, sans-serif;\n  background: #f8fafc;\n  color: #1e293b;\n  padding: 2rem;\n}\n\nh1 {\n  font-size: 2rem;\n  color: #4f8ef7;\n}\n' },
-  { name: 'README.md', language: 'markdown', content: '# My Project\n\nBuilt with CodeSync — real-time collaborative editor.\n\n## Features\n- Live collaboration\n- CRDT-based conflict resolution\n- Multi-file support\n\n## Getting Started\n```bash\nnpm install\nnpm start\n```\n' }
-];
+import { LANGUAGES, getLangColor } from '../utils/languages';
 
 export default function Editor({ roomId, userName, userColor, onLeave }) {
-  const [activeFile, setActiveFile] = useState(DEFAULT_FILES[0]);
+  const [projects, setProjects] = useState(DEFAULT_PROJECTS);
+  const [activeProjectId, setActiveProjectId] = useState(DEFAULT_PROJECTS[0].id);
+  const [activeFileId, setActiveFileId] = useState(DEFAULT_PROJECTS[0].files[0].id);
   const [activities, setActivities] = useState([
-    { id: 1, user: userName, color: userColor, text: `opened ${DEFAULT_FILES[0].name}`, time: new Date() }
+    { id: 1, user: userName, color: userColor, text: 'opened the editor', time: new Date() }
   ]);
+  const [output, setOutput] = useState('');
+  const [showOutput, setShowOutput] = useState(false);
+  const [running, setRunning] = useState(false);
   const editorRef = useRef(null);
+  const isFirstMount = useRef(true);
+
+  const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
+  const activeFile = activeProject?.files.find(f => f.id === activeFileId) || activeProject?.files[0];
 
   const addActivity = useCallback((text, user = userName, color = userColor) => {
-    setActivities(prev => [{
-      id: Date.now(),
-      user, color, text, time: new Date()
-    }, ...prev].slice(0, 30));
+    setActivities(prev => [{ id: Date.now(), user, color, text, time: new Date() }, ...prev].slice(0, 30));
   }, [userName, userColor]);
 
-  const { status, users, error, bindEditor, updateCursor } = useCollabEditor({
-    roomId,
-    userName,
-    userColor,
-    fileName: activeFile.name
+  const { status, users, error, bindEditor, updateCursor, syncProjects } = useCollabEditor({
+    roomId, userName, userColor,
+    fileName: `${activeProjectId}___${activeFile?.id || 'default'}`,
+    projects, setProjects
   });
+
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false;
+      setTimeout(() => syncProjects(projects), 1000);
+      return;
+    }
+    syncProjects(projects);
+  }, [projects]);
+
+  function runCode() {
+    if (!activeFile) return;
+    setRunning(true);
+    setShowOutput(true);
+    setOutput('Running...');
+
+    const code = editorRef.current?.getValue() || activeFile.content;
+    const lang = activeFile.language;
+
+    setTimeout(() => {
+      if (lang === 'javascript' || lang === 'typescript' || lang === 'jsx') {
+        const logs = [];
+        const fakeConsole = {
+          log: (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')),
+          error: (...args) => logs.push('❌ ' + args.join(' ')),
+          warn: (...args) => logs.push('⚠ ' + args.join(' ')),
+          info: (...args) => logs.push('ℹ ' + args.join(' ')),
+        };
+        try {
+          const fn = new Function('console', code);
+          fn(fakeConsole);
+          setOutput(logs.length > 0 ? logs.join('\n') : '✓ Ran successfully (no output)');
+        } catch (err) {
+          setOutput('❌ Error: ' + err.message);
+        }
+      } else if (lang === 'html') {
+        const blob = new Blob([code], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setOutput('✓ HTML opened in new tab');
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      } else if (lang === 'json') {
+        try {
+          const parsed = JSON.parse(code);
+          setOutput(JSON.stringify(parsed, null, 2));
+        } catch (err) {
+          setOutput('❌ Invalid JSON: ' + err.message);
+        }
+      } else if (lang === 'css') {
+        setOutput('ℹ CSS cannot run standalone.\nLink this in your HTML file to see styles.');
+      } else if (lang === 'markdown') {
+        setOutput('ℹ Export as HTML to see rendered Markdown.');
+      } else {
+        setOutput(`ℹ ${lang.toUpperCase()} requires a server runtime.\nOnly JavaScript runs in the browser.\nExport your code and run it locally.`);
+      }
+      setRunning(false);
+    }, 300);
+  }
 
   function handleEditorMount(editor, monaco) {
     editorRef.current = editor;
     bindEditor(editor, monaco);
-
     editor.onDidChangeCursorPosition(e => {
       updateCursor({ lineNumber: e.position.lineNumber, column: e.position.column });
     });
-
-    // Custom theme
     monaco.editor.defineTheme('codesync-dark', {
-      base: 'vs-dark',
-      inherit: true,
+      base: 'vs-dark', inherit: true,
       rules: [
         { token: 'comment', foreground: '4a5568', fontStyle: 'italic' },
         { token: 'keyword', foreground: 'a78bfa' },
@@ -68,9 +121,29 @@ export default function Editor({ roomId, userName, userColor, onLeave }) {
     monaco.editor.setTheme('codesync-dark');
   }
 
-  function switchFile(file) {
-    setActiveFile(file);
-    addActivity(`switched to ${file.name}`);
+  function changeLanguage(langId) {
+    const lang = LANGUAGES.find(l => l.id === langId);
+    if (!lang || !activeFile) return;
+    setProjects(prev => prev.map(p =>
+      p.id === activeProjectId ? {
+        ...p, files: p.files.map(f => f.id === activeFileId ? { ...f, language: langId } : f)
+      } : p
+    ));
+    addActivity(`changed language to ${lang.label}`);
+  }
+
+  function handleFileSwitch(fileId) {
+    const file = activeProject?.files.find(f => f.id === fileId);
+    if (file) { setActiveFileId(fileId); addActivity(`switched to ${file.name}`); }
+  }
+
+  function handleProjectSwitch(projId) {
+    const proj = projects.find(p => p.id === projId);
+    if (proj) {
+      setActiveProjectId(projId);
+      setActiveFileId(proj.files[0].id);
+      addActivity(`switched to project "${proj.name}"`);
+    }
   }
 
   function copyRoomLink() {
@@ -81,88 +154,101 @@ export default function Editor({ roomId, userName, userColor, onLeave }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100vh', overflow:'hidden' }}>
-      <TopBar
-        roomId={roomId}
-        userName={userName}
-        userColor={userColor}
-        users={users}
-        status={status}
-        onCopyLink={copyRoomLink}
-        onLeave={onLeave}
-      />
+      <TopBar roomId={roomId} userName={userName} userColor={userColor} users={users}
+        status={status} onCopyLink={copyRoomLink} onLeave={onLeave}
+        activeFile={activeFile} activeProject={activeProject} projects={projects} />
 
       {error && (
-        <div style={{ background:'rgba(248,113,113,0.1)', borderBottom:'1px solid rgba(248,113,113,0.2)', padding:'6px 16px', fontSize:'12px', color:'var(--red)', display:'flex', alignItems:'center', gap:'8px' }}>
-          <span>⚠</span> {error} &nbsp;
-          <span style={{ color:'var(--text-muted)' }}>Your edits are saved locally.</span>
+        <div style={{ background:'rgba(248,113,113,0.1)', borderBottom:'1px solid rgba(248,113,113,0.2)', padding:'5px 16px', fontSize:'12px', color:'var(--red)', display:'flex', alignItems:'center', gap:'8px' }}>
+          <span>⚠</span> {error} <span style={{ color:'var(--text-muted)' }}>Edits saved locally.</span>
         </div>
       )}
 
       <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
-        <Sidebar
-          files={DEFAULT_FILES}
-          activeFile={activeFile}
+        <ProjectManager
+          projects={projects} setProjects={setProjects}
+          activeProjectId={activeProjectId} setActiveProjectId={handleProjectSwitch}
+          activeFileId={activeFileId} setActiveFileId={handleFileSwitch}
           users={users}
-          onSelectFile={switchFile}
         />
 
         <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-          {/* Tabs */}
-          <div style={{ display:'flex', background:'var(--surface)', borderBottom:'1px solid var(--border)', flexShrink:0, overflowX:'auto' }}>
-            {DEFAULT_FILES.slice(0, 3).map(f => (
-              <div
-                key={f.name}
-                onClick={() => switchFile(f)}
-                style={{ display:'flex', alignItems:'center', gap:'6px', padding:'8px 16px', fontSize:'12px', fontFamily:'var(--font-code)', cursor:'pointer', borderBottom: activeFile.name===f.name ? '2px solid var(--accent)' : '2px solid transparent', color: activeFile.name===f.name ? 'var(--text)' : 'var(--text-muted)', background: activeFile.name===f.name ? 'var(--bg)' : 'transparent', whiteSpace:'nowrap', transition:'color 0.1s' }}
-              >
-                <FileIcon name={f.name} />
-                {f.name}
+          {/* Tabs + language + run button */}
+          <div style={{ display:'flex', alignItems:'center', background:'var(--surface)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+            <div style={{ display:'flex', flex:1, overflowX:'auto' }}>
+              {(activeProject?.files || []).map(f => (
+                <div key={f.id} onClick={() => handleFileSwitch(f.id)}
+                  style={{ display:'flex', alignItems:'center', gap:'5px', padding:'7px 14px', fontSize:'12px', fontFamily:'var(--font-code)', cursor:'pointer', borderBottom: activeFileId===f.id ? '2px solid var(--accent)' : '2px solid transparent', color: activeFileId===f.id ? 'var(--text)' : 'var(--text-muted)', background: activeFileId===f.id ? 'var(--bg)' : 'transparent', whiteSpace:'nowrap', transition:'color 0.1s', flexShrink:0 }}>
+                  <span style={{ width:'6px', height:'6px', borderRadius:'50%', background:getLangColor(f.language), display:'inline-block', flexShrink:0 }} />
+                  {f.name}
+                </div>
+              ))}
+            </div>
+
+            {/* Language selector */}
+            <div style={{ display:'flex', alignItems:'center', gap:'6px', padding:'0 10px', borderLeft:'1px solid var(--border)', flexShrink:0 }}>
+              <span style={{ width:'7px', height:'7px', borderRadius:'50%', background:getLangColor(activeFile?.language), display:'inline-block' }} />
+              <select value={activeFile?.language || 'javascript'} onChange={e => changeLanguage(e.target.value)}
+                style={{ background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'4px', padding:'4px 8px', fontSize:'11px', color:'var(--text)', outline:'none', fontFamily:'var(--font-ui)', cursor:'pointer', maxWidth:'130px' }}>
+                {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+              </select>
+            </div>
+
+            {/* RUN BUTTON */}
+            <div style={{ padding:'0 10px', borderLeft:'1px solid var(--border)', flexShrink:0 }}>
+              <button onClick={runCode} disabled={running}
+                style={{ background: running ? 'var(--surface2)' : '#34d399', color: running ? 'var(--text-muted)' : '#0d1117', border:'none', borderRadius:'6px', padding:'5px 14px', fontSize:'12px', fontWeight:'700', cursor: running ? 'not-allowed' : 'pointer', fontFamily:'var(--font-ui)', display:'flex', alignItems:'center', gap:'5px', transition:'all 0.15s' }}>
+                {running ? '⟳ Running...' : '▶ Run'}
+              </button>
+            </div>
+
+            {/* Toggle output */}
+            {showOutput && (
+              <div style={{ padding:'0 10px', flexShrink:0 }}>
+                <button onClick={() => setShowOutput(false)}
+                  style={{ background:'transparent', border:'none', color:'var(--text-muted)', fontSize:'16px', cursor:'pointer', lineHeight:1 }}>×</button>
               </div>
-            ))}
+            )}
           </div>
 
-          <MonacoEditor
-            height="100%"
-            language={activeFile.language}
-            theme="codesync-dark"
-            defaultValue={activeFile.content}
-            onMount={handleEditorMount}
-            options={{
-              fontSize: 14,
-              fontFamily: "'JetBrains Mono', monospace",
-              fontLigatures: true,
-              lineHeight: 1.7,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              automaticLayout: true,
-              tabSize: 2,
-              cursorBlinking: 'smooth',
-              smoothScrolling: true,
-              padding: { top: 16, bottom: 16 },
-              renderLineHighlight: 'line',
-              bracketPairColorization: { enabled: true },
-              suggest: { showIcons: true },
-              quickSuggestions: true,
-            }}
-          />
+          {/* Editor + Output panel */}
+          <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+            <div style={{ flex: showOutput ? '1' : '1', minHeight:0 }}>
+              {activeFile && (
+                <MonacoEditor
+                  key={`${activeProjectId}-${activeFileId}`}
+                  height="100%"
+                  language={activeFile.language}
+                  theme="codesync-dark"
+                  defaultValue={activeFile.content}
+                  onMount={handleEditorMount}
+                  options={{ fontSize:14, fontFamily:"'JetBrains Mono', monospace", fontLigatures:true, lineHeight:1.7, minimap:{enabled:false}, scrollBeyondLastLine:false, wordWrap:'on', automaticLayout:true, tabSize:2, cursorBlinking:'smooth', smoothScrolling:true, padding:{top:16,bottom:16}, renderLineHighlight:'line', bracketPairColorization:{enabled:true}, suggest:{showIcons:true}, quickSuggestions:true }}
+                />
+              )}
+            </div>
+
+            {/* Output panel */}
+            {showOutput && (
+              <div style={{ height:'180px', background:'#0a0c10', borderTop:'1px solid var(--border)', flexShrink:0, display:'flex', flexDirection:'column' }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'5px 14px', background:'var(--surface)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+                  <span style={{ fontSize:'11px', color:'var(--text-muted)', fontWeight:'700', letterSpacing:'0.08em', textTransform:'uppercase' }}>Output</span>
+                  <div style={{ display:'flex', gap:'8px' }}>
+                    <button onClick={() => setOutput('')} style={{ background:'transparent', border:'none', color:'var(--text-faint)', fontSize:'11px', cursor:'pointer', fontFamily:'var(--font-ui)' }}>Clear</button>
+                    <button onClick={() => setShowOutput(false)} style={{ background:'transparent', border:'none', color:'var(--text-faint)', fontSize:'16px', cursor:'pointer', lineHeight:1 }}>×</button>
+                  </div>
+                </div>
+                <pre style={{ flex:1, overflowY:'auto', margin:0, padding:'12px 16px', fontSize:'12px', fontFamily:"'JetBrains Mono', monospace", color:'#34d399', lineHeight:'1.6', whiteSpace:'pre-wrap', wordBreak:'break-all' }}>
+                  {output || 'Click ▶ Run to execute your code...'}
+                </pre>
+              </div>
+            )}
+          </div>
         </div>
 
         <ActivityFeed activities={activities} users={users} />
       </div>
 
-      <StatusBar
-        status={status}
-        activeFile={activeFile}
-        users={users}
-        roomId={roomId}
-      />
+      <StatusBar status={status} activeFile={activeFile} users={users} roomId={roomId} activeProject={activeProject} />
     </div>
   );
-}
-
-function FileIcon({ name }) {
-  const ext = name.split('.').pop();
-  const colors = { js: '#fbbf24', jsx: '#38bdf8', ts: '#4f8ef7', tsx: '#4f8ef7', html: '#f87171', css: '#a78bfa', md: '#34d399', json: '#fb923c', py: '#34d399' };
-  return <span style={{ width:'7px', height:'7px', borderRadius:'50%', background: colors[ext] || '#888', display:'inline-block', flexShrink:0 }} />;
 }

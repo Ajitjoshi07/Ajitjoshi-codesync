@@ -5,29 +5,26 @@ import { MonacoBinding } from 'y-monaco';
 
 const WS_URL = process.env.REACT_APP_WS_URL || `ws://${window.location.hostname}:1234`;
 
-export function useCollabEditor({ roomId, userName, userColor, fileName }) {
+export function useCollabEditor({ roomId, userName, userColor, fileName, projects, setProjects }) {
   const ydocRef = useRef(null);
   const providerRef = useRef(null);
   const bindingRef = useRef(null);
-  const monacoRef = useRef(null);
+  const isRemoteUpdate = useRef(false);
 
   const [status, setStatus] = useState('connecting');
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
 
-  // Initialize Yjs doc + WebSocket provider
   useEffect(() => {
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
 
-    const wsUrl = `${WS_URL}?room=${roomId}&name=${encodeURIComponent(userName)}&color=${encodeURIComponent(userColor)}`;
+    // Shared project structure — synced across all users
+    const yProjects = ydoc.getMap('projects');
 
     let provider;
     try {
-      provider = new WebsocketProvider(WS_URL, roomId, ydoc, {
-        connect: true,
-        params: { name: userName, color: userColor }
-      });
+      provider = new WebsocketProvider(WS_URL, roomId, ydoc, { connect: true });
       providerRef.current = provider;
 
       provider.on('status', ({ status }) => {
@@ -40,7 +37,6 @@ export function useCollabEditor({ roomId, userName, userColor, fileName }) {
         setError('Cannot connect to server. Running in offline mode.');
       });
 
-      // Set local user awareness
       provider.awareness.setLocalStateField('user', {
         name: userName,
         color: userColor,
@@ -68,35 +64,42 @@ export function useCollabEditor({ roomId, userName, userColor, fileName }) {
       provider.awareness.on('change', updateUsers);
       updateUsers();
 
+      // Listen for remote project structure changes
+      yProjects.observe(() => {
+        if (isRemoteUpdate.current) return;
+        const remoteProjects = yProjects.get('data');
+        if (remoteProjects && setProjects) {
+          isRemoteUpdate.current = true;
+          setProjects(JSON.parse(remoteProjects));
+          setTimeout(() => { isRemoteUpdate.current = false; }, 100);
+        }
+      });
+
     } catch (err) {
       setStatus('disconnected');
       setError('WebSocket unavailable. Changes are local only.');
     }
 
     return () => {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-      if (provider) {
-        provider.awareness.destroy();
-        provider.destroy();
-      }
+      if (bindingRef.current) { bindingRef.current.destroy(); bindingRef.current = null; }
+      if (provider) { provider.awareness.destroy(); provider.destroy(); }
       ydoc.destroy();
     };
   }, [roomId, userName, userColor]);
 
-  // Bind Monaco editor to Yjs
-  const bindEditor = useCallback((editor, monaco) => {
-    monacoRef.current = { editor, monaco };
-    if (!ydocRef.current || !providerRef.current) return;
+  // Sync project structure to all users whenever it changes
+  const syncProjects = useCallback((projectsData) => {
+    if (!ydocRef.current || isRemoteUpdate.current) return;
+    const yProjects = ydocRef.current.getMap('projects');
+    yProjects.set('data', JSON.stringify(projectsData));
+  }, []);
 
-    if (bindingRef.current) {
-      bindingRef.current.destroy();
-    }
+  // Bind Monaco editor to Yjs text
+  const bindEditor = useCallback((editor, monaco) => {
+    if (!ydocRef.current || !providerRef.current) return;
+    if (bindingRef.current) { bindingRef.current.destroy(); }
 
     const yText = ydocRef.current.getText(fileName);
-
     try {
       const binding = new MonacoBinding(
         yText,
@@ -110,17 +113,13 @@ export function useCollabEditor({ roomId, userName, userColor, fileName }) {
     }
   }, [fileName]);
 
-  // Update cursor position in awareness
   const updateCursor = useCallback((position) => {
     if (!providerRef.current) return;
     const user = providerRef.current.awareness.getLocalState()?.user;
     if (user) {
-      providerRef.current.awareness.setLocalStateField('user', {
-        ...user,
-        cursor: position
-      });
+      providerRef.current.awareness.setLocalStateField('user', { ...user, cursor: position });
     }
   }, []);
 
-  return { status, users, error, bindEditor, updateCursor };
+  return { status, users, error, bindEditor, updateCursor, syncProjects };
 }
