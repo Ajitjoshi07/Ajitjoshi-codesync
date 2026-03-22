@@ -8,13 +8,19 @@ A production-grade collaborative code editor supporting real-time multi-user edi
 
 ## Features
 
-- **Real-time sync** — edits propagate to all users in under 50ms via WebSocket
-- **CRDT-based conflict resolution** — Yjs ensures eventual consistency with zero conflicts across 50+ concurrent users
-- **Cursor presence awareness** — see where every collaborator is editing in real time
-- **Multi-file support** — switch between files within a shared session
-- **Room system** — create or join rooms with a shareable link
-- **MongoDB persistence** — sessions and file state saved to database
-- **Offline-resilient** — gracefully degrades when server is unreachable
+## Features
+
+* **Real-time sync** — edits propagate to all users in under 50ms via WebSocket
+* **CRDT-based conflict resolution** — Yjs ensures eventual consistency with zero conflicts across 50+ concurrent users
+* **Multi-project support** — create unlimited projects, each with their own files
+* **40+ programming languages** — JavaScript, Python, Java, C++, Go, Rust, Swift, Kotlin and many more
+* **Export anywhere** — PDF, Word (.doc), HTML, Markdown, ZIP — all with syntax highlighting
+* **Custom room IDs** — create rooms with your own ID and share with teammates
+* **Cursor presence awareness** — see where every collaborator is editing in real time
+* **Live activity feed** — see what every user is doing in real time
+* **MongoDB persistence** — sessions and file state saved to database
+* **Offline-resilient** — gracefully degrades when server is unreachable
+* **Docker ready** — full Docker Compose setup included
 
 ---
 
@@ -79,7 +85,7 @@ A production-grade collaborative code editor supporting real-time multi-user edi
 
 ```bash
 # Clone
-git clone https://github.com/Ajitjoshi07/codesync.git
+git clone https://github.com/Ajitjoshi07/Ajitjoshi-codesync.git
 cd codesync
 
 # Install dependencies
@@ -98,7 +104,7 @@ Open **http://localhost:3000** in two browser tabs to test real-time sync.
 ### Option 2 — Docker Compose (includes MongoDB)
 
 ```bash
-git clone https://github.com/Ajitjoshi07/codesync.git
+git clone https://github.com/Ajitjoshi07/Ajitjoshi-codesync.git
 cd codesync
 docker-compose up --build
 ```
