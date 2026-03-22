@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: codesync-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: codesync
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: codesync-server
+    restart: unless-stopped
+    ports:
+      - "1234:1234"
+    environment:
+      PORT: 1234
+      MONGO_URI: mongodb://mongo:27017/codesync
+    depends_on:
+      - mongo
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: codesync-client
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+
+volumes:
+  mongo_data:
