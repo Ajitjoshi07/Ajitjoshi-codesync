@@ -1,6 +1,6 @@
 # CodeSync — Real-Time Collaborative Code Editor
 
-> Built by **Ajit Mukund Joshi** · [Live Demo](https://ajitjoshi-codesync.onrender.com) · [LinkedIn](https://linkedin.com/in/ajitjoshi) · [GitHub](https://github.com/ajitjoshi810)
+> Built by **Ajit Mukund Joshi** · [Live Demo](https://ajitjoshi-codesync.onrender.com) · [LinkedIn](https://www.linkedin.com/in/ajit-joshi-ai-engineer) · [GitHub](https://github.com/Ajitjoshi07)
 
 A production-grade collaborative code editor supporting real-time multi-user editing using **Conflict-free Replicated Data Types (CRDT)** via Yjs, WebSocket synchronization, and MongoDB session persistence.
 
@@ -79,7 +79,7 @@ A production-grade collaborative code editor supporting real-time multi-user edi
 
 ```bash
 # Clone
-git clone https://github.com/ajitjoshi810/codesync.git
+git clone https://github.com/Ajitjoshi07/codesync.git
 cd codesync
 
 # Install dependencies
@@ -98,7 +98,7 @@ Open **http://localhost:3000** in two browser tabs to test real-time sync.
 ### Option 2 — Docker Compose (includes MongoDB)
 
 ```bash
-git clone https://github.com/ajitjoshi810/codesync.git
+git clone https://github.com/Ajitjoshi07/codesync.git
 cd codesync
 docker-compose up --build
 ```
