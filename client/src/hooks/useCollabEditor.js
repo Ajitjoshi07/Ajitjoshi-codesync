@@ -14,17 +14,18 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
   const [status, setStatus] = useState('connecting');
   const [users, setUsers] = useState([]);
   const [error, setError] = useState(null);
+  const [ydoc, setYdoc] = useState(null);
 
   useEffect(() => {
-    const ydoc = new Y.Doc();
-    ydocRef.current = ydoc;
+    const doc = new Y.Doc();
+    ydocRef.current = doc;
+    setYdoc(doc);
 
-    // Shared project structure — synced across all users
-    const yProjects = ydoc.getMap('projects');
+    const yProjects = doc.getMap('projects');
 
     let provider;
     try {
-      provider = new WebsocketProvider(WS_URL, roomId, ydoc, { connect: true });
+      provider = new WebsocketProvider(WS_URL, roomId, doc, { connect: true });
       providerRef.current = provider;
 
       provider.on('status', ({ status }) => {
@@ -38,23 +39,17 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
       });
 
       provider.awareness.setLocalStateField('user', {
-        name: userName,
-        color: userColor,
-        cursor: null
+        name: userName, color: userColor, cursor: null
       });
 
-      // Track online users
       const updateUsers = () => {
         const states = provider.awareness.getStates();
         const onlineUsers = [];
         states.forEach((state, clientId) => {
           if (state.user) {
             onlineUsers.push({
-              clientId,
-              name: state.user.name,
-              color: state.user.color,
-              cursor: state.user.cursor,
-              isSelf: clientId === ydoc.clientID
+              clientId, name: state.user.name, color: state.user.color,
+              cursor: state.user.cursor, isSelf: clientId === doc.clientID
             });
           }
         });
@@ -64,13 +59,13 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
       provider.awareness.on('change', updateUsers);
       updateUsers();
 
-      // Listen for remote project structure changes
+      // Sync project structure
       yProjects.observe(() => {
         if (isRemoteUpdate.current) return;
-        const remoteProjects = yProjects.get('data');
-        if (remoteProjects && setProjects) {
+        const remote = yProjects.get('data');
+        if (remote && setProjects) {
           isRemoteUpdate.current = true;
-          setProjects(JSON.parse(remoteProjects));
+          try { setProjects(JSON.parse(remote)); } catch(e) {}
           setTimeout(() => { isRemoteUpdate.current = false; }, 100);
         }
       });
@@ -83,30 +78,22 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     return () => {
       if (bindingRef.current) { bindingRef.current.destroy(); bindingRef.current = null; }
       if (provider) { provider.awareness.destroy(); provider.destroy(); }
-      ydoc.destroy();
+      doc.destroy();
     };
   }, [roomId, userName, userColor]);
 
-  // Sync project structure to all users whenever it changes
   const syncProjects = useCallback((projectsData) => {
     if (!ydocRef.current || isRemoteUpdate.current) return;
     const yProjects = ydocRef.current.getMap('projects');
     yProjects.set('data', JSON.stringify(projectsData));
   }, []);
 
-  // Bind Monaco editor to Yjs text
   const bindEditor = useCallback((editor, monaco) => {
     if (!ydocRef.current || !providerRef.current) return;
     if (bindingRef.current) { bindingRef.current.destroy(); }
-
     const yText = ydocRef.current.getText(fileName);
     try {
-      const binding = new MonacoBinding(
-        yText,
-        editor.getModel(),
-        new Set([editor]),
-        providerRef.current.awareness
-      );
+      const binding = new MonacoBinding(yText, editor.getModel(), new Set([editor]), providerRef.current.awareness);
       bindingRef.current = binding;
     } catch (err) {
       console.warn('[CRDT] Monaco binding failed:', err.message);
@@ -121,5 +108,5 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     }
   }, []);
 
-  return { status, users, error, bindEditor, updateCursor, syncProjects };
+  return { status, users, error, bindEditor, updateCursor, syncProjects, ydoc };
 }
