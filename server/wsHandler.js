@@ -10,7 +10,7 @@ const MESSAGE_AWARENESS = 1;
 
 function getOrCreateRoom(roomId) {
   if (!rooms.has(roomId)) {
-    console.log(`[Server] Creating room: "${roomId}"`);
+    console.log(`[Server] New room: "${roomId}"`);
     const doc = new Y.Doc();
     const awareness = new awarenessProtocol.Awareness(doc);
 
@@ -24,9 +24,7 @@ function getOrCreateRoom(roomId) {
         awarenessProtocol.encodeAwarenessUpdate(awareness, [...added, ...updated, ...removed])
       );
       const buf = encoding.toUint8Array(encoder);
-      room.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) client.send(buf);
-      });
+      room.clients.forEach(c => { if (c.readyState === WebSocket.OPEN) c.send(buf); });
     });
 
     rooms.set(roomId, { doc, awareness, clients: new Set(), createdAt: Date.now() });
@@ -35,49 +33,33 @@ function getOrCreateRoom(roomId) {
 }
 
 function setupWSConnection(ws, req) {
-  // y-websocket sends room as the URL path
-  // e.g. ws://localhost:1234/room1 → req.url = "/room1"
-  // e.g. ws://localhost:1234/my-room → req.url = "/my-room"
-  
-  let roomId = req.url
-    .split('?')[0]  // remove query string
-    .replace(/^\//, '')  // remove leading slash
-    .trim();
-
-  // Fallback: check query param
-  if (!roomId) {
-    const urlObj = new URL('http://x' + req.url);
-    roomId = urlObj.searchParams.get('room') || '';
-  }
+  // Parse room ID from URL path
+  // y-websocket connects to: wss://server/roomId
+  // So req.url = "/roomId" or "/roomId?params"
+  let roomId = req.url.split('?')[0].replace(/^\/+/, '').trim().toLowerCase();
 
   if (!roomId) {
-    console.error(`[Server] No room ID in URL: "${req.url}" — rejecting`);
+    console.warn(`[Server] No room ID in URL: "${req.url}" — closing`);
     ws.close(1008, 'Room ID required');
     return;
   }
 
-  console.log(`[Server] Client joining room: "${roomId}" (from URL: ${req.url})`);
-
   const room = getOrCreateRoom(roomId);
   room.clients.add(ws);
+  console.log(`[Server] "${roomId}": ${room.clients.size} user(s)`);
 
-  console.log(`[Server] Room "${roomId}" now has ${room.clients.size} client(s)`);
-
-  // Send sync step 1
+  // Sync step 1
   const enc = encoding.createEncoder();
   encoding.writeVarUint(enc, MESSAGE_SYNC);
   syncProtocol.writeSyncStep1(enc, room.doc);
   ws.send(encoding.toUint8Array(enc));
 
   // Send awareness
-  const awarenessStates = room.awareness.getStates();
-  if (awarenessStates.size > 0) {
+  const states = room.awareness.getStates();
+  if (states.size > 0) {
     const aEnc = encoding.createEncoder();
     encoding.writeVarUint(aEnc, MESSAGE_AWARENESS);
-    encoding.writeVarUint8Array(
-      aEnc,
-      awarenessProtocol.encodeAwarenessUpdate(room.awareness, [...awarenessStates.keys()])
-    );
+    encoding.writeVarUint8Array(aEnc, awarenessProtocol.encodeAwarenessUpdate(room.awareness, [...states.keys()]));
     ws.send(encoding.toUint8Array(aEnc));
   }
 
@@ -93,26 +75,20 @@ function setupWSConnection(ws, req) {
         const syncMsgType = syncProtocol.readSyncMessage(decoder, replyEnc, room.doc, null);
         if (encoding.length(replyEnc) > 1) ws.send(encoding.toUint8Array(replyEnc));
         if (syncMsgType === syncProtocol.messageYjsSyncStep2 || syncMsgType === syncProtocol.messageYjsUpdate) {
-          room.clients.forEach(c => {
-            if (c !== ws && c.readyState === WebSocket.OPEN) c.send(buf);
-          });
+          room.clients.forEach(c => { if (c !== ws && c.readyState === WebSocket.OPEN) c.send(buf); });
         }
       } else if (msgType === MESSAGE_AWARENESS) {
-        awarenessProtocol.applyAwarenessUpdate(
-          room.awareness,
-          decoding.readVarUint8Array(decoder),
-          ws
-        );
+        awarenessProtocol.applyAwarenessUpdate(room.awareness, decoding.readVarUint8Array(decoder), ws);
       }
     } catch (err) {
-      console.error(`[Room "${roomId}"] Message error:`, err.message);
+      console.error(`[Room "${roomId}"] Msg error:`, err.message);
     }
   });
 
   ws.on('close', () => {
     room.clients.delete(ws);
     awarenessProtocol.removeAwarenessStates(room.awareness, [room.doc.clientID], null);
-    console.log(`[Server] Room "${roomId}" now has ${room.clients.size} client(s)`);
+    console.log(`[Server] "${roomId}": ${room.clients.size} user(s)`);
     if (room.clients.size === 0) {
       setTimeout(() => {
         if (rooms.get(roomId)?.clients.size === 0) {
