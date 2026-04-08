@@ -14,7 +14,7 @@ export default function App() {
         password={session.password}
         onLeave={() => {
           setSession(null);
-          window.history.pushState({}, '', '/');
+          window.history.replaceState({}, '', window.location.pathname);
         }}
       />
     );
@@ -23,8 +23,15 @@ export default function App() {
   return (
     <Home
       onJoin={(roomId, userName, userColor, password) => {
-        setSession({ roomId, userName, userColor, password });
-        window.history.pushState({}, '', `?room=${roomId}`);
+        if (!roomId || !userName) return;
+        const cleanRoomId = roomId.trim().toLowerCase();
+        window.history.replaceState({}, '', `?room=${encodeURIComponent(cleanRoomId)}`);
+        setSession({
+          roomId: cleanRoomId,
+          userName: userName.trim(),
+          userColor,
+          password,
+        });
       }}
     />
   );

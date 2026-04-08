@@ -8,20 +8,21 @@ const sessionRoutes = require('./routes/sessions');
 
 const app = express();
 const server = http.createServer(app);
+
+// WebSocket server - handleProtocols helps with y-websocket
 const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 app.use(require('cors')());
 app.use('/api/sessions', sessionRoutes);
-
 app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
 
-// WebSocket upgrade — extract room from URL: /collab?room=roomId
 wss.on('connection', (ws, req) => {
+  // Log every connection for debugging
+  console.log(`[Server] New WebSocket connection from URL: "${req.url}"`);
   setupWSConnection(ws, req);
 });
 
-// MongoDB connect (optional — falls back gracefully if no URI)
 const MONGO_URI = process.env.MONGO_URI;
 if (MONGO_URI) {
   mongoose.connect(MONGO_URI)
@@ -32,6 +33,6 @@ if (MONGO_URI) {
 const PORT = process.env.PORT || 1234;
 server.listen(PORT, () => {
   console.log(`[CodeSync] Server running on port ${PORT}`);
-  console.log(`[CodeSync] WebSocket: ws://localhost:${PORT}`);
-  console.log(`[CodeSync] REST API: http://localhost:${PORT}/api`);
+  console.log(`[CodeSync] WebSocket ready at ws://localhost:${PORT}`);
+  console.log(`[CodeSync] REST API at http://localhost:${PORT}/api`);
 });
