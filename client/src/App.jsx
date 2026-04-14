@@ -25,12 +25,12 @@ export default function App() {
       onJoin={(roomId, userName, userColor, password) => {
         if (!roomId || !userName) return;
         const cleanRoomId = roomId.trim().toLowerCase();
-        window.history.replaceState({}, '', `?room=${encodeURIComponent(cleanRoomId)}`);
+        window.history.replaceState({}, '', '?room=' + encodeURIComponent(cleanRoomId));
         setSession({
           roomId: cleanRoomId,
           userName: userName.trim(),
-          userColor,
-          password,
+          userColor: userColor,
+          password: password,
         });
       }}
     />
