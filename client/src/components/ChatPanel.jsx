@@ -26,9 +26,11 @@ export default function ChatPanel({ userName, userColor, users, ydoc, minimized,
   const yTasks = useRef(null);
 
   useEffect(() => {
-    if (!ydoc) return;
-    yMessages.current = ydoc.getArray('chat_messages');
-    yTasks.current = ydoc.getArray('tasks');
+    // ydoc is now a ref object — access the Y.Doc via ydoc.current
+    const doc = ydoc?.current;
+    if (!doc) return;
+    yMessages.current = doc.getArray('chat_messages');
+    yTasks.current = doc.getArray('tasks');
     const sync = () => forceUpdate(v => v + 1);
     yMessages.current.observe(sync);
     yTasks.current.observe(sync);
