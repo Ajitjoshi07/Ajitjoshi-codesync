@@ -3,8 +3,11 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { MonacoBinding } from 'y-monaco';
 
-// Base WebSocket URL
-const WS_BASE = process.env.REACT_APP_WS_URL || `ws://${window.location.hostname}:1234`;
+// ✅ FIXED WebSocket URL (LOCAL + PRODUCTION)
+const WS_BASE =
+  window.location.hostname === "localhost"
+    ? "ws://localhost:1234"
+    : "wss://ajitjoshi-codesync.onrender.com";
 
 export function useCollabEditor({ roomId, userName, userColor, fileName, projects, setProjects }) {
   const ydocRef = useRef(null);
@@ -18,9 +21,10 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // ✅ FIX: prevent crash if roomId missing
     if (!roomId || !roomId.trim()) {
       setStatus('disconnected');
-      setError('No room ID');
+      setError('Invalid room ID');
       return;
     }
 
@@ -28,7 +32,7 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     currentRoomRef.current = cleanRoomId;
 
     console.log(`[Client] Connecting to room: "${cleanRoomId}"`);
-    console.log(`[Client] WebSocket URL will be: ${WS_BASE}/${cleanRoomId}`);
+    console.log(`[Client] WebSocket URL: ${WS_BASE}`);
 
     const doc = new Y.Doc();
     ydocRef.current = doc;
@@ -36,26 +40,29 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     const yProjects = doc.getMap('projects');
 
     let provider;
+
     try {
+      // ✅ FIX: safe WebSocket creation
       provider = new WebsocketProvider(WS_BASE, cleanRoomId, doc, {
         connect: true,
         resyncInterval: 3000,
       });
+
       providerRef.current = provider;
 
       provider.on('status', ({ status }) => {
-        console.log(`[Client] Room "${cleanRoomId}" WebSocket status: ${status}`);
+        console.log(`[Client] WebSocket status: ${status}`);
         setStatus(status);
         if (status === 'connected') setError(null);
       });
 
       provider.on('connection-error', () => {
-        console.error(`[Client] Connection error for room "${cleanRoomId}"`);
+        console.error('[Client] WebSocket connection failed');
         setStatus('disconnected');
-        setError('Cannot connect to server. Running in offline mode.');
+        setError('Cannot connect to server');
       });
 
-      // Set local user
+      // ✅ Set user awareness
       provider.awareness.setLocalStateField('user', {
         name: userName,
         color: userColor,
@@ -63,7 +70,7 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
         roomId: cleanRoomId,
       });
 
-      // Track users
+      // ✅ Track users
       const updateUsers = () => {
         const states = provider.awareness.getStates();
         const onlineUsers = [];
@@ -86,19 +93,22 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
       provider.awareness.on('change', updateUsers);
       updateUsers();
 
-      // Sync project structure
+      // ✅ Sync project data
       yProjects.observe(() => {
         if (isRemoteUpdate.current) return;
 
         const remote = yProjects.get('data');
         if (remote && setProjects) {
           isRemoteUpdate.current = true;
+
           try {
             const parsed = JSON.parse(remote);
-            if (Array.isArray(parsed) && parsed.length > 0) {
+            if (Array.isArray(parsed)) {
               setProjects(parsed);
             }
-          } catch (e) {}
+          } catch (e) {
+            console.warn("Project sync error:", e);
+          }
 
           setTimeout(() => {
             isRemoteUpdate.current = false;
@@ -109,12 +119,12 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     } catch (err) {
       console.error('[Client] WebSocket setup error:', err);
       setStatus('disconnected');
-      setError('WebSocket unavailable. Changes are local only.');
+      setError('WebSocket unavailable');
     }
 
-    // Cleanup
+    // ✅ CLEANUP (important)
     return () => {
-      console.log(`[Client] Disconnecting from room: "${cleanRoomId}"`);
+      console.log(`[Client] Disconnecting room: "${cleanRoomId}"`);
 
       if (bindingRef.current) {
         bindingRef.current.destroy();
@@ -141,7 +151,9 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
       ydocRef.current
         .getMap('projects')
         .set('data', JSON.stringify(projectsData));
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Sync error:", e);
+    }
   }, []);
 
   const bindEditor = useCallback((editor, monaco) => {
@@ -155,7 +167,7 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     const cleanRoomId = currentRoomRef.current || 'default';
     const fileKey = `${cleanRoomId}::${fileName}`;
 
-    console.log(`[Client] Binding editor to key: "${fileKey}"`);
+    console.log(`[Client] Binding editor: ${fileKey}`);
 
     const yText = ydocRef.current.getText(fileKey);
 
@@ -183,7 +195,6 @@ export function useCollabEditor({ roomId, userName, userColor, fileName, project
     }
   }, []);
 
-  // ✅ IMPORTANT: return ref, not raw object
   return {
     status,
     users,
