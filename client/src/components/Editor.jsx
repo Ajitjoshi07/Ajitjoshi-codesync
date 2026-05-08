@@ -42,11 +42,6 @@ export default function Editor({ roomId, userName, userColor, onLeave }) {
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0];
   const activeFile = activeProject?.files?.find(f => f.id === activeFileId) || activeProject?.files?.[0];
 
-  // ✅ CRASH PREVENTION
-  if (!activeProject || !activeFile) {
-    return <div style={{ color: "white" }}>Loading editor...</div>;
-  }
-
   const addActivity = useCallback((text) => {
     setActivities(prev => [{ id: Date.now(), text }, ...prev]);
   }, []);
@@ -68,6 +63,11 @@ export default function Editor({ roomId, userName, userColor, onLeave }) {
     }
     syncProjects(projects);
   }, [projects]);
+
+  // ✅ FIXED — early return is now AFTER all hooks
+  if (!activeProject || !activeFile) {
+    return <div style={{ color: "white" }}>Loading editor...</div>;
+  }
 
   function handleEditorMount(editor, monaco) {
     editorRef.current = editor;
@@ -175,7 +175,6 @@ export default function Editor({ roomId, userName, userColor, onLeave }) {
           />
         )}
 
-        {/* ✅ SAFE CHAT PANEL (CRASH FIX) */}
         {!zenMode && ydoc && (
           <ChatPanel
             userName={userName}
